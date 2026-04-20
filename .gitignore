@@ -1,0 +1,57 @@
+# =========================
+# FRONTEND (React + Vite)
+# =========================
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# =========================
+# BACKEND (Python + FastAPI)
+# =========================
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.py[cod]
+backend/.venv/
+backend/venv/
+backend/.env
+backend/.env.local
+backend/*.egg-info/
+backend/dist/
+backend/build/
+backend/.pytest_cache/
+backend/htmlcov/
+backend/.coverage
+backend/coverage.xml
+
+# =========================
+# E2E TESTS (JS/TS based)
+# =========================
+e2e-tests/node_modules/
+e2e-tests/.env
+e2e-tests/.env.local
+
+# Common e2e output dirs (Playwright / Cypress / etc.)
+e2e-tests/test-results/
+e2e-tests/playwright-report/
+e2e-tests/cypress/screenshots/
+e2e-tests/cypress/videos/
+e2e-tests/cypress/downloads/
+
+# =========================
+# EDITORS & OS
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# =========================
+# MISC
+# =========================
+*.log
+*.local
