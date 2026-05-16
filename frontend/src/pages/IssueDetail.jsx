@@ -1,123 +1,211 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../api/axios';
 import Navbar from '../components/Navbar';
-import { AuthContext } from '../context/AuthContext';
-import { MapPin, Clock, ArrowLeft, Image as ImageIcon } from 'lucide-react';
+import { statusBadge, statusDot } from '../utils/status';
+import { MapPin, Clock, ArrowLeft, ImageIcon, Tag, IndianRupee } from 'lucide-react';
 
 export default function IssueDetail() {
   const { id } = useParams();
-  const { user } = useContext(AuthContext);
-  const [issue, setIssue] = useState(null);
+  const [issue,    setIssue]    = useState(null);
   const [timeline, setTimeline] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading,  setLoading]  = useState(true);
 
   useEffect(() => {
-    const fetchIssueDetails = async () => {
-      try {
-        const [issueRes, timelineRes] = await Promise.all([
-          api.get(`/issues/${id}`),
-          api.get(`/issues/${id}/timeline`)
-        ]);
+    Promise.all([
+      api.get(`/issues/${id}`),
+      api.get(`/issues/${id}/timeline`),
+    ])
+      .then(([issueRes, tlRes]) => {
         setIssue(issueRes.data);
-        setTimeline(timelineRes.data);
-      } catch (error) {
-        console.error("Failed to load issue", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchIssueDetails();
+        setTimeline(tlRes.data);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) return <div className="p-12 text-center">Loading...</div>;
-  if (!issue) return <div className="p-12 text-center text-red-500">Issue not found.</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <div className="max-w-4xl mx-auto px-4 py-12 space-y-4 animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-24" />
+          <div className="card p-8 space-y-4">
+            <div className="h-8 bg-gray-200 rounded w-1/2" />
+            <div className="h-4 bg-gray-200 rounded w-1/3" />
+            <div className="h-32 bg-gray-200 rounded" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!issue) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <div className="max-w-4xl mx-auto px-4 py-20 text-center">
+          <p className="text-gray-500 font-medium">Issue not found.</p>
+          <Link to="/board" className="mt-4 inline-block btn-secondary text-sm">← Back to Board</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <Link to="/board" className="inline-flex items-center text-sm font-medium text-gray-500 hover:text-gray-700 mb-6">
-          <ArrowLeft size={16} className="mr-1" /> Back to Board
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 animate-fade-in">
+
+        {/* Back link */}
+        <Link
+          to="/board"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-800 mb-6 transition-colors"
+        >
+          <ArrowLeft size={15} /> Back to Board
         </Link>
-        
+
+        {/* Issue card */}
         <div className="card p-6 md:p-8 mb-8">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
-            <div>
-              <div className="flex items-center space-x-3 mb-2">
-                <span className="text-sm font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded">{issue.issue_number}</span>
-                <span className="text-sm px-3 py-1 rounded-full font-medium bg-blue-100 text-blue-800">{issue.status}</span>
+          {/* Header row */}
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <span className="text-xs font-mono font-semibold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded">
+                  {issue.issue_number}
+                </span>
+                <span className={`badge text-xs ${statusBadge(issue.status)}`}>
+                  {issue.status}
+                </span>
+                <span className="text-xs text-gray-500 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded">
+                  {issue.category}
+                </span>
               </div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{issue.title}</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-gray-900 leading-snug">
+                {issue.title}
+              </h1>
             </div>
-            {issue.estimated_budget && (
-              <div className="bg-green-50 border border-green-100 px-4 py-2 rounded-lg text-center shrink-0">
-                <div className="text-xs text-green-600 font-semibold uppercase tracking-wide">Approved Budget</div>
-                <div className="text-xl font-bold text-green-700">₹{issue.estimated_budget.toLocaleString()}</div>
+
+            {issue.estimated_budget != null && (
+              <div className="bg-emerald-50 border border-emerald-100 px-4 py-3 rounded-xl text-center shrink-0">
+                <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-0.5">
+                  Approved Budget
+                </div>
+                <div className="flex items-center justify-center gap-0.5 text-xl font-bold text-emerald-700">
+                  <IndianRupee size={18} />
+                  {issue.estimated_budget.toLocaleString('en-IN')}
+                </div>
               </div>
             )}
           </div>
-          
-          <div className="flex flex-wrap gap-4 text-sm text-gray-600 mb-6 pb-6 border-b border-gray-100">
-            <div className="flex items-center"><MapPin size={16} className="mr-1 text-gray-400" /> {issue.location?.area}</div>
-            <div className="flex items-center"><Clock size={16} className="mr-1 text-gray-400" /> {new Date(issue.created_at).toLocaleString()}</div>
-            <div className="bg-gray-100 px-2 py-0.5 rounded text-gray-700">{issue.category}</div>
-          </div>
-          
-          <div className="prose max-w-none text-gray-800 mb-8">
-            <p>{issue.description}</p>
+
+          {/* Meta row */}
+          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 pb-5 mb-5 border-b border-gray-100">
+            <span className="flex items-center gap-1.5">
+              <MapPin size={14} className="text-gray-400" />
+              {issue.location?.area}
+              {issue.location?.landmark && ` · ${issue.location.landmark}`}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Clock size={14} className="text-gray-400" />
+              {new Date(issue.created_at).toLocaleString('en-IN', {
+                day: 'numeric', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit',
+              })}
+            </span>
           </div>
 
-          {issue.photos && issue.photos.length > 0 && (
+          {/* Description */}
+          <p className="text-sm text-gray-700 leading-relaxed mb-6">
+            {issue.description}
+          </p>
+
+          {/* Photos */}
+          {issue.photos?.length > 0 && (
             <div>
-              <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center"><ImageIcon size={16} className="mr-2"/> Evidence Photos</h3>
-              <div className="flex gap-4 overflow-x-auto pb-4">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 mb-3">
+                <ImageIcon size={15} className="text-gray-400" /> Evidence Photos
+              </h3>
+              <div className="flex gap-3 overflow-x-auto pb-1">
                 {issue.photos.map((photo, i) => (
-                  <img key={i} src={photo} alt="Evidence" className="h-48 rounded-lg object-cover border border-gray-200" />
+                  <img
+                    key={i}
+                    src={photo}
+                    alt={`Evidence ${i + 1}`}
+                    className="h-40 w-auto rounded-lg object-cover border border-gray-100 shrink-0 cursor-zoom-in"
+                  />
                 ))}
               </div>
             </div>
           )}
         </div>
 
-        {/* Progress Timeline */}
+        {/* Timeline */}
         <div>
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Progress Timeline</h2>
-          <div className="relative border-l-2 border-gray-200 ml-4 space-y-8">
-            {timeline.map((entry, idx) => (
-              <div key={entry._id} className="relative pl-8">
-                {/* Timeline Dot */}
-                <div className="absolute -left-2 top-1.5 h-4 w-4 rounded-full bg-primary-500 border-4 border-white shadow-sm"></div>
-                
-                <div className="card p-5">
-                  <div className="flex flex-wrap justify-between items-start gap-2 mb-2">
-                    <h3 className="text-lg font-bold text-gray-900">{entry.stage}</h3>
-                    <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">{new Date(entry.timestamp).toLocaleString()}</span>
-                  </div>
-                  
-                  <div className="flex items-center space-x-2 text-sm text-gray-600 mb-3">
-                    <span className="font-medium">{entry.actor_name}</span>
-                    <span className="text-xs bg-gray-100 px-2 py-0.5 rounded capitalize">{entry.actor_role}</span>
-                  </div>
-                  
-                  {entry.note && (
-                    <div className="bg-gray-50 p-3 rounded text-sm text-gray-700 border-l-2 border-gray-300">
-                      {entry.note}
-                    </div>
-                  )}
+          <h2 className="text-lg font-bold text-gray-900 mb-6">Progress Timeline</h2>
 
-                  {entry.photos && entry.photos.length > 0 && (
-                    <div className="flex gap-2 mt-3 overflow-x-auto">
-                      {entry.photos.map((photo, i) => (
-                        <img key={i} src={photo} alt="Update" className="h-24 rounded object-cover border border-gray-200" />
-                      ))}
+          {timeline.length === 0 ? (
+            <div className="card p-8 text-center text-gray-400 text-sm">
+              No timeline entries yet.
+            </div>
+          ) : (
+            <div className="relative">
+              {/* Vertical line */}
+              <div className="absolute left-[18px] top-0 bottom-0 w-px bg-gray-200 -z-0" />
+
+              <div className="space-y-4">
+                {timeline.map((entry, idx) => (
+                  <div key={entry._id ?? idx} className="relative flex gap-4">
+                    {/* Dot */}
+                    <div className={`relative z-10 h-9 w-9 rounded-full border-4 border-white shadow-sm shrink-0 flex items-center justify-center ${statusDot(entry.status_to)}`}>
+                      <span className="text-white text-xs font-bold">{idx + 1}</span>
                     </div>
-                  )}
-                </div>
+
+                    {/* Content */}
+                    <div className="card p-4 flex-1 mb-0">
+                      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                        <span className="font-semibold text-gray-900 text-sm">{entry.stage}</span>
+                        <time className="text-xs text-gray-400 shrink-0">
+                          {new Date(entry.timestamp).toLocaleString('en-IN', {
+                            day: 'numeric', month: 'short',
+                            hour: '2-digit', minute: '2-digit',
+                          })}
+                        </time>
+                      </div>
+
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm text-gray-700 font-medium">{entry.actor_name}</span>
+                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded capitalize">
+                          {entry.actor_role}
+                        </span>
+                      </div>
+
+                      {entry.note && (
+                        <div className="mt-2 bg-gray-50 border-l-2 border-gray-300 pl-3 py-1.5 pr-3 rounded-r text-sm text-gray-600">
+                          {entry.note}
+                        </div>
+                      )}
+
+                      {entry.photos?.length > 0 && (
+                        <div className="flex gap-2 mt-3 overflow-x-auto">
+                          {entry.photos.map((photo, i) => (
+                            <img
+                              key={i}
+                              src={photo}
+                              alt="Update"
+                              className="h-20 w-auto rounded-lg object-cover border border-gray-100 shrink-0"
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
+
       </div>
     </div>
   );

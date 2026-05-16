@@ -1,13 +1,13 @@
 {
   "name": "e2e-tests",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "test": "tests"
-  },
+  "description": "Playwright E2E tests for CivicTrack",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:lifecycle": "playwright test tests/lifecycle.spec.js",
+    "test:errors": "playwright test tests/errors.spec.js",
+    "report": "playwright show-report"
   },
   "keywords": [],
   "author": "",
