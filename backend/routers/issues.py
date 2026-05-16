@@ -4,7 +4,7 @@ from typing import List, Optional
 from models.issue import Issue
 from models.timeline import TimelineEntry
 from models.user import User
-from middleware.auth import RoleChecker, get_current_user
+from middleware.auth import RoleChecker, get_current_user, get_optional_current_user
 from services.counter_service import get_next_sequence
 from beanie import PydanticObjectId
 from datetime import datetime
@@ -66,17 +66,15 @@ async def get_my_issues(current_user: User = Depends(get_current_user)):
     return issues
 
 @router.get("/{issue_id}")
-async def get_issue(issue_id: PydanticObjectId, current_user: User = Depends(get_current_user)):
+async def get_issue(issue_id: PydanticObjectId, current_user: Optional[User] = Depends(get_optional_current_user)):
     issue = await Issue.get(issue_id)
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-        
-    # Auto status update to Under Review if Auditor opens it and it's Submitted
-    if current_user.role == "auditor" and issue.status == "Submitted":
+
+    if current_user and current_user.role == "auditor" and issue.status == "Submitted":
         issue.status = "Under Review"
         issue.updated_at = datetime.utcnow()
         await issue.save()
-        
         timeline = TimelineEntry(
             issue_id=issue.id,
             stage="Under Review",
@@ -87,10 +85,25 @@ async def get_issue(issue_id: PydanticObjectId, current_user: User = Depends(get
             note="Auditor started review"
         )
         await timeline.insert()
-        
+
     return issue
 
 @router.get("/{issue_id}/timeline")
-async def get_issue_timeline(issue_id: PydanticObjectId, current_user: User = Depends(get_current_user)):
+async def get_issue_timeline(issue_id: PydanticObjectId):
     timeline = await TimelineEntry.find({"issue_id": issue_id}).sort("timestamp").to_list()
     return timeline
+
+class EvidenceUpdate(BaseModel):
+    photos: List[str] = []
+
+@router.patch("/{issue_id}/evidence")
+async def update_evidence(issue_id: PydanticObjectId, data: EvidenceUpdate, current_user: User = Depends(get_current_user)):
+    issue = await Issue.get(issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if issue.reported_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the reporter can update evidence photos")
+    issue.photos = data.photos
+    issue.updated_at = datetime.utcnow()
+    await issue.save()
+    return {"message": "Evidence updated"}

@@ -31,11 +31,11 @@ Register using one of the pre-configured worker emails:
 
 | Email | Password (demo) |
 |---|---|
-| worker1@example.com | _(set when you first registered)_ |
-| worker2@example.com | _(set when you first registered)_ |
-| worker3@example.com | _(set when you first registered)_ |
-| worker4@example.com | _(set when you first registered)_ |
-| worker5@example.com | _(set when you first registered)_ |
+| worker1@example.com | mallikarjun |
+| worker2@example.com | mallikarjun |
+| worker3@example.com | mallikarjun |
+| worker4@example.com | mallikarjun |
+| worker5@example.com | mallikarjun |
 
 Can submit work proposals (budget + timeline) for assigned issues and update field progress.
 
@@ -44,11 +44,11 @@ Register using one of the pre-configured auditor emails:
 
 | Email | Password (demo) |
 |---|---|
-| auditor1@example.com | _(set when you first registered)_ |
-| auditor2@example.com | _(set when you first registered)_ |
-| auditor3@example.com | _(set when you first registered)_ |
-| auditor4@example.com | _(set when you first registered)_ |
-| auditor5@example.com | _(set when you first registered)_ |
+| auditor1@example.com | mallikarjun |
+| auditor2@example.com | mallikarjun |
+| auditor3@example.com | mallikarjun |
+| auditor4@example.com | mallikarjun |
+| auditor5@example.com | mallikarjun |
 
 Can validate/reject issues, assign workers, approve proposals, and give final sign-off.
 
@@ -93,6 +93,18 @@ pip install -r requirements.txt
 cp .env.example .env              # if it doesn't exist, create .env manually
 # Edit .env and set MONGODB_URI to your connection string
 ```
+
+### Seed demo data (optional but recommended)
+
+With the backend **and** frontend both running:
+
+```bash
+cd backend
+source venv/bin/activate
+python seed.py
+```
+
+This registers all 13 demo accounts (3 citizens, 5 auditors, 5 workers) — all with password **`mallikarjun`** — and creates 8 sample issues across Ranchi. Safe to run multiple times; existing accounts are verified, not duplicated.
 
 **`backend/.env` reference:**
 

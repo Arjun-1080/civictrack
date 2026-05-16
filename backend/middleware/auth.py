@@ -1,11 +1,13 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
+from typing import Optional
 from config import settings
 from models.user import User
 from beanie import PydanticObjectId
 
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
@@ -26,6 +28,20 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     if user is None:
         raise credentials_exception
     return user
+
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+) -> Optional[User]:
+    if not credentials:
+        return None
+    try:
+        payload = jwt.decode(credentials.credentials, settings.secret_key, algorithms=[settings.algorithm])
+        user_id: str = payload.get("sub")
+        if not user_id:
+            return None
+        return await User.get(PydanticObjectId(user_id))
+    except Exception:
+        return None
 
 def RoleChecker(allowed_roles: list[str]):
     async def role_checker(current_user: User = Depends(get_current_user)):
