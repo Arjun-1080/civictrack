@@ -9,7 +9,8 @@ import api from '../api/axios';
 import {
   Camera, ChevronDown, ChevronUp, Loader2,
   CheckCircle, XCircle, UserCheck, ArrowRight,
-  ClipboardList, Briefcase, PlusCircle,
+  ClipboardList, Briefcase, PlusCircle, IndianRupee,
+  AlertCircle, Trash2,
 } from 'lucide-react';
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
@@ -162,12 +163,13 @@ const WORKER_STATUSES = ['Started', 'In Progress', 'Completed'];
 
 function WorkerQueue() {
   const toast = useToast();
-  const [issues,  setIssues]  = useState([]);
-  const [loading, setLoading] = useState(true);
+  const photoInputRef = useRef(null);
 
-  // Proposal form state (one per issue, keyed by id)
-  const [proposalForm, setProposalForm] = useState(null); // { issueId, desc, days, budget }
-  const [statusForm,   setStatusForm]   = useState(null); // { issueId, status, note }
+  const [issues,       setIssues]       = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [proposalCache, setProposalCache] = useState({}); // issueId → proposal data
+  const [proposalForm, setProposalForm] = useState(null); // { issueId, isUpdate, desc, days, budget }
+  const [statusForm,   setStatusForm]   = useState(null); // { issueId, status, note, photos }
   const [busy, setBusy] = useState(false);
 
   const fetchIssues = useCallback(() => {
@@ -179,22 +181,65 @@ function WorkerQueue() {
 
   useEffect(() => { fetchIssues(); }, [fetchIssues]);
 
-  const openProposalForm = (issue) => {
+  // Fetch proposal for a single issue and cache it
+  const fetchProposal = useCallback(async (issueId) => {
+    if (proposalCache[issueId] !== undefined) return proposalCache[issueId];
+    try {
+      const res = await api.get(`/worker/issues/${issueId}/proposal`);
+      setProposalCache(c => ({ ...c, [issueId]: res.data }));
+      return res.data;
+    } catch {
+      setProposalCache(c => ({ ...c, [issueId]: null }));
+      return null;
+    }
+  }, [proposalCache]);
+
+  const openProposalForm = async (issue) => {
     setStatusForm(null);
-    setProposalForm({
-      issueId: issue._id,
-      isUpdate: issue.status === 'Proposal Rejected',
-      desc: '', days: '', budget: '',
-    });
+    const isUpdate = issue.status === 'Proposal Rejected';
+    let defaults = { desc: '', days: '', budget: '' };
+
+    if (isUpdate) {
+      const proposal = await fetchProposal(issue._id);
+      if (proposal) {
+        defaults = {
+          desc:   proposal.description ?? '',
+          days:   String(proposal.estimated_timeline_days ?? ''),
+          budget: String(proposal.estimated_budget ?? ''),
+        };
+      }
+    }
+
+    setProposalForm({ issueId: issue._id, isUpdate, ...defaults });
   };
 
   const openStatusForm = (issue) => {
     setProposalForm(null);
-    setStatusForm({
-      issueId: issue._id,
-      status: 'Started',
-      note: '',
-    });
+    // Load proposal for display, but default status to first valid option
+    const currentStatus = WORKER_STATUSES.includes(issue.status) ? issue.status : WORKER_STATUSES[0];
+    setStatusForm({ issueId: issue._id, status: currentStatus, note: '', photos: [] });
+
+    // Fetch proposal in background for context display
+    if (['Proposal Submitted', 'Proposal Approved', 'Proposal Rejected'].includes(issue.status) ||
+        ['Started', 'In Progress', 'Needs Rework'].includes(issue.status)) {
+      fetchProposal(issue._id);
+    }
+  };
+
+  const handleStatusPhoto = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ type: 'error', message: 'Photo must be under 5 MB.' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => setStatusForm(s => ({ ...s, photos: [...(s.photos ?? []), reader.result] }));
+    reader.readAsDataURL(file);
+  };
+
+  const removeStatusPhoto = (idx) => {
+    setStatusForm(s => ({ ...s, photos: s.photos.filter((_, i) => i !== idx) }));
   };
 
   const submitProposal = async () => {
@@ -216,6 +261,8 @@ function WorkerQueue() {
       }
       toast({ type: 'success', message: 'Proposal submitted successfully.' });
       setProposalForm(null);
+      // Invalidate cached proposal so it refreshes next time
+      setProposalCache(c => ({ ...c, [proposalForm.issueId]: undefined }));
       fetchIssues();
     } catch (e) {
       toast({ type: 'error', message: e.response?.data?.detail || 'Failed to submit proposal.' });
@@ -229,8 +276,8 @@ function WorkerQueue() {
     try {
       await api.patch(`/worker/issues/${statusForm.issueId}/status`, {
         status: statusForm.status,
-        note: statusForm.note,
-        photos: [],
+        note:   statusForm.note,
+        photos: statusForm.photos ?? [],
       });
       toast({ type: 'success', message: `Status updated to "${statusForm.status}".` });
       setStatusForm(null);
@@ -270,128 +317,188 @@ function WorkerQueue() {
         </div>
       ) : (
         <div className="divide-y divide-gray-50">
-          {issues.map(issue => (
-            <div key={issue._id} data-testid="worker-issue-row">
-              <div className="px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-mono text-gray-400">{issue.issue_number}</span>
-                    <StatusBadge status={issue.status} />
-                  </div>
-                  <p className="font-medium text-gray-900 text-sm line-clamp-1">{issue.title}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{issue.location?.area}</p>
-                </div>
+          {issues.map(issue => {
+            const proposal = proposalCache[issue._id];
+            const showProposalCard = proposal && ['Proposal Submitted', 'Proposal Approved'].includes(issue.status);
 
-                <div className="flex gap-2 shrink-0">
-                  {(issue.status === 'Assigned' || issue.status === 'Proposal Rejected') && (
-                    <button
-                      onClick={() => proposalForm?.issueId === issue._id ? setProposalForm(null) : openProposalForm(issue)}
-                      className="btn-secondary text-xs gap-1.5"
-                    >
-                      <ClipboardList size={13} />
-                      {proposalForm?.issueId === issue._id ? 'Cancel' : issue.status === 'Proposal Rejected' ? 'Revise Proposal' : 'Submit Proposal'}
-                    </button>
-                  )}
-                  {['Proposal Approved','Started','In Progress','Needs Rework'].includes(issue.status) && (
-                    <button
-                      onClick={() => statusForm?.issueId === issue._id ? setStatusForm(null) : openStatusForm(issue)}
-                      className="btn-primary text-xs gap-1.5"
-                    >
-                      <ArrowRight size={13} />
-                      {statusForm?.issueId === issue._id ? 'Cancel' : 'Update Status'}
-                    </button>
-                  )}
-                  <Link to={`/issues/${issue._id}`} className="btn-secondary text-xs">
-                    View
-                  </Link>
-                </div>
-              </div>
-
-              {/* Inline proposal form */}
-              {proposalForm?.issueId === issue._id && (
-                <div className="px-6 pb-5 bg-gray-50 border-t border-gray-100">
-                  <p className="text-sm font-semibold text-gray-700 pt-4 mb-3">
-                    {proposalForm.isUpdate ? 'Revise Proposal' : 'New Proposal'}
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-600">Estimated Days</label>
-                      <input
-                        type="number" min="1"
-                        className="input-field text-sm"
-                        placeholder="e.g. 7"
-                        value={proposalForm.days}
-                        onChange={e => setProposalForm(p => ({ ...p, days: e.target.value }))}
-                      />
+            return (
+              <div key={issue._id} data-testid="worker-issue-row">
+                <div className="px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-mono text-gray-400">{issue.issue_number}</span>
+                      <StatusBadge status={issue.status} />
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-600">Estimated Budget (₹)</label>
-                      <input
-                        type="number" min="0" step="100"
-                        className="input-field text-sm"
-                        placeholder="e.g. 5000"
-                        value={proposalForm.budget}
-                        onChange={e => setProposalForm(p => ({ ...p, budget: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1 mb-3">
-                    <label className="text-xs font-medium text-gray-600">Description</label>
-                    <textarea
-                      rows={3}
-                      className="input-field text-sm resize-none"
-                      placeholder="Describe your resolution approach…"
-                      value={proposalForm.desc}
-                      onChange={e => setProposalForm(p => ({ ...p, desc: e.target.value }))}
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={submitProposal} disabled={busy} className="btn-primary text-sm gap-1.5">
-                      {busy ? <Spinner size={13} /> : <CheckCircle size={13} />}
-                      Submit Proposal
-                    </button>
-                    <button onClick={() => setProposalForm(null)} className="btn-secondary text-sm">Cancel</button>
-                  </div>
-                </div>
-              )}
+                    <p className="font-medium text-gray-900 text-sm line-clamp-1">{issue.title}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{issue.location?.area}</p>
 
-              {/* Inline status update form */}
-              {statusForm?.issueId === issue._id && (
-                <div className="px-6 pb-5 bg-gray-50 border-t border-gray-100">
-                  <p className="text-sm font-semibold text-gray-700 pt-4 mb-3">Update Work Status</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-gray-600">New Status</label>
-                      <select
-                        className="input-field text-sm bg-white"
-                        value={statusForm.status}
-                        onChange={e => setStatusForm(s => ({ ...s, status: e.target.value }))}
+                    {/* Rejection note banner */}
+                    {issue.status === 'Proposal Rejected' && proposal?.auditor_note && (
+                      <div className="mt-2 flex items-start gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                        <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                        <span><span className="font-semibold">Rejection reason:</span> {proposal.auditor_note}</span>
+                      </div>
+                    )}
+
+                    {/* Needs rework note */}
+                    {issue.status === 'Needs Rework' && issue.rejection_reason && (
+                      <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                        <span><span className="font-semibold">Rework required:</span> {issue.rejection_reason}</span>
+                      </div>
+                    )}
+
+                    {/* Approved proposal summary */}
+                    {showProposalCard && (
+                      <div className="mt-2 flex items-center gap-3 text-xs text-gray-600 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                        <IndianRupee size={12} className="text-emerald-600" />
+                        <span>Budget: <span className="font-semibold">₹{proposal.estimated_budget?.toLocaleString('en-IN')}</span></span>
+                        <span>·</span>
+                        <span>Timeline: <span className="font-semibold">{proposal.estimated_timeline_days} days</span></span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 shrink-0">
+                    {(issue.status === 'Assigned' || issue.status === 'Proposal Rejected') && (
+                      <button
+                        onClick={() => proposalForm?.issueId === issue._id ? setProposalForm(null) : openProposalForm(issue)}
+                        className="btn-secondary text-xs gap-1.5"
                       >
-                        {WORKER_STATUSES.map(s => <option key={s}>{s}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  <div className="space-y-1 mb-3">
-                    <label className="text-xs font-medium text-gray-600">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
-                    <textarea
-                      rows={2}
-                      className="input-field text-sm resize-none"
-                      placeholder="Any field observations…"
-                      value={statusForm.note}
-                      onChange={e => setStatusForm(s => ({ ...s, note: e.target.value }))}
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={updateStatus} disabled={busy} className="btn-primary text-sm gap-1.5">
-                      {busy ? <Spinner size={13} /> : <CheckCircle size={13} />}
-                      Save Update
-                    </button>
-                    <button onClick={() => setStatusForm(null)} className="btn-secondary text-sm">Cancel</button>
+                        <ClipboardList size={13} />
+                        {proposalForm?.issueId === issue._id ? 'Cancel' : issue.status === 'Proposal Rejected' ? 'Revise Proposal' : 'Submit Proposal'}
+                      </button>
+                    )}
+                    {['Proposal Approved','Started','In Progress','Needs Rework'].includes(issue.status) && (
+                      <button
+                        onClick={() => statusForm?.issueId === issue._id ? setStatusForm(null) : openStatusForm(issue)}
+                        className="btn-primary text-xs gap-1.5"
+                      >
+                        <ArrowRight size={13} />
+                        {statusForm?.issueId === issue._id ? 'Cancel' : 'Update Status'}
+                      </button>
+                    )}
+                    <Link to={`/issues/${issue._id}`} className="btn-secondary text-xs">
+                      View
+                    </Link>
                   </div>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* Inline proposal form */}
+                {proposalForm?.issueId === issue._id && (
+                  <div className="px-6 pb-5 bg-gray-50 border-t border-gray-100">
+                    <p className="text-sm font-semibold text-gray-700 pt-4 mb-3">
+                      {proposalForm.isUpdate ? 'Revise Proposal' : 'New Proposal'}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-gray-600">Estimated Days</label>
+                        <input
+                          type="number" min="1"
+                          className="input-field text-sm"
+                          placeholder="e.g. 7"
+                          value={proposalForm.days}
+                          onChange={e => setProposalForm(p => ({ ...p, days: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-gray-600">Estimated Budget (₹)</label>
+                        <input
+                          type="number" min="0" step="100"
+                          className="input-field text-sm"
+                          placeholder="e.g. 5000"
+                          value={proposalForm.budget}
+                          onChange={e => setProposalForm(p => ({ ...p, budget: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1 mb-3">
+                      <label className="text-xs font-medium text-gray-600">Description</label>
+                      <textarea
+                        rows={3}
+                        className="input-field text-sm resize-none"
+                        placeholder="Describe your resolution approach…"
+                        value={proposalForm.desc}
+                        onChange={e => setProposalForm(p => ({ ...p, desc: e.target.value }))}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={submitProposal} disabled={busy} className="btn-primary text-sm gap-1.5">
+                        {busy ? <Spinner size={13} /> : <CheckCircle size={13} />}
+                        Submit Proposal
+                      </button>
+                      <button onClick={() => setProposalForm(null)} className="btn-secondary text-sm">Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Inline status update form */}
+                {statusForm?.issueId === issue._id && (
+                  <div className="px-6 pb-5 bg-gray-50 border-t border-gray-100">
+                    <p className="text-sm font-semibold text-gray-700 pt-4 mb-3">Update Work Status</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-gray-600">New Status</label>
+                        <select
+                          className="input-field text-sm bg-white"
+                          value={statusForm.status}
+                          onChange={e => setStatusForm(s => ({ ...s, status: e.target.value }))}
+                        >
+                          {WORKER_STATUSES.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-1 mb-3">
+                      <label className="text-xs font-medium text-gray-600">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+                      <textarea
+                        rows={2}
+                        className="input-field text-sm resize-none"
+                        placeholder="Any field observations…"
+                        value={statusForm.note}
+                        onChange={e => setStatusForm(s => ({ ...s, note: e.target.value }))}
+                      />
+                    </div>
+
+                    {/* Photo attachments */}
+                    <div className="space-y-2 mb-3">
+                      <label className="text-xs font-medium text-gray-600">Progress Photos <span className="text-gray-400 font-normal">(optional)</span></label>
+                      {statusForm.photos?.length > 0 && (
+                        <div className="flex gap-2 flex-wrap">
+                          {statusForm.photos.map((p, i) => (
+                            <div key={i} className="relative">
+                              <img src={p} alt="" className="h-20 w-auto rounded-lg object-cover border border-gray-200" />
+                              <button
+                                onClick={() => removeStatusPhoto(i)}
+                                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600"
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => photoInputRef.current?.click()}
+                        className="btn-secondary text-xs flex items-center gap-1.5"
+                      >
+                        <Camera size={13} /> Add Photo
+                      </button>
+                      <input type="file" accept="image/*" className="hidden" ref={photoInputRef} onChange={handleStatusPhoto} />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button onClick={updateStatus} disabled={busy} className="btn-primary text-sm gap-1.5">
+                        {busy ? <Spinner size={13} /> : <CheckCircle size={13} />}
+                        Save Update
+                      </button>
+                      <button onClick={() => setStatusForm(null)} className="btn-secondary text-sm">Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -400,16 +507,29 @@ function WorkerQueue() {
 
 // ─── Auditor Queue ──────────────────────────────────────────────────────────────
 
+// Statuses where the auditor needs to see the proposal inline
+const PROPOSAL_NEEDED = new Set(['Proposal Submitted', 'Completed']);
+
 function AuditorQueue() {
   const toast = useToast();
-  const [issues,  setIssues]  = useState([]);
-  const [workers, setWorkers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [issues,        setIssues]        = useState([]);
+  const [workers,       setWorkers]       = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [proposalCache, setProposalCache] = useState({}); // issueId → proposal | null
   const [busy, setBusy] = useState(false);
 
-  // { type, issueId, note, workerId }
   const [modal, setModal] = useState(null);
-  const [assignMap, setAssignMap] = useState({}); // issueId → workerId
+  const [assignMap, setAssignMap] = useState({});
+
+  const fetchProposals = useCallback((issueList) => {
+    const targets = issueList.filter(i => PROPOSAL_NEEDED.has(i.status));
+    if (!targets.length) return;
+    targets.forEach(issue => {
+      api.get(`/worker/issues/${issue._id}/proposal`)
+        .then(r => setProposalCache(c => ({ ...c, [issue._id]: r.data })))
+        .catch(() => setProposalCache(c => ({ ...c, [issue._id]: null })));
+    });
+  }, []);
 
   const fetchAll = useCallback(() => {
     Promise.all([
@@ -419,10 +539,11 @@ function AuditorQueue() {
       .then(([issRes, wkRes]) => {
         setIssues(issRes.data);
         setWorkers(wkRes.data);
+        fetchProposals(issRes.data);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [fetchProposals]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -450,10 +571,12 @@ function AuditorQueue() {
         case 'approve-proposal':
           await api.patch(`/auditor/issues/${modal.issueId}/proposal/review`, { approved: true, note: modal.note });
           toast({ type: 'success', message: 'Proposal approved.' });
+          setProposalCache(c => { const n = {...c}; delete n[modal.issueId]; return n; });
           break;
         case 'reject-proposal':
           await api.patch(`/auditor/issues/${modal.issueId}/proposal/review`, { approved: false, note: modal.note });
           toast({ type: 'success', message: 'Proposal sent back to worker.' });
+          setProposalCache(c => { const n = {...c}; delete n[modal.issueId]; return n; });
           break;
         case 'resolve':
           await api.patch(`/auditor/issues/${modal.issueId}/final-review`, { resolved: true, note: modal.note });
@@ -532,80 +655,123 @@ function AuditorQueue() {
           <div className="px-6 py-10 text-center text-gray-400 text-sm">No issues in queue.</div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {issues.map(issue => (
-              <div key={issue._id} className="px-6 py-4" data-testid="auditor-issue-row">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="text-xs font-mono text-gray-400">{issue.issue_number}</span>
-                      <StatusBadge status={issue.status} />
-                    </div>
-                    <p className="font-medium text-gray-900 text-sm">{issue.title}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{issue.location?.area} · {issue.category}</p>
-                    <Link to={`/issues/${issue._id}`} className="text-xs text-primary-600 hover:text-primary-700 mt-1 inline-block">
-                      View details →
-                    </Link>
-                  </div>
+            {issues.map(issue => {
+              const proposal = proposalCache[issue._id];
+              const workerName = workers.find(w => w.id === String(issue.assigned_worker))?.name;
 
-                  <div className="shrink-0 flex flex-wrap items-center gap-2">
-                    {issue.status === 'Submitted' && (
-                      <>
-                        <button onClick={() => openModal('validate', issue._id)} className="btn-primary text-xs gap-1">
-                          <CheckCircle size={12} /> Mark Valid
-                        </button>
-                        <button onClick={() => openModal('close', issue._id)} className="btn-danger text-xs gap-1">
-                          <XCircle size={12} /> Close
-                        </button>
-                      </>
-                    )}
-
-                    {issue.status === 'Under Review' && (
-                      <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg p-2">
-                        <select
-                          className="input-field py-1 px-2 text-xs bg-white"
-                          value={assignMap[issue._id] || ''}
-                          onChange={e => setAssignMap(m => ({ ...m, [issue._id]: e.target.value }))}
-                        >
-                          <option value="">— Select worker —</option>
-                          {workers.map(w => (
-                            <option key={w.id} value={w.id}>{w.name} ({w.readable_id})</option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => assignWorker(issue._id)}
-                          disabled={busy || !assignMap[issue._id]}
-                          className="btn-primary text-xs gap-1 disabled:opacity-50 whitespace-nowrap"
-                        >
-                          <UserCheck size={12} /> Assign
-                        </button>
+              return (
+                <div key={issue._id} className="px-6 py-4" data-testid="auditor-issue-row">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="text-xs font-mono text-gray-400">{issue.issue_number}</span>
+                        <StatusBadge status={issue.status} />
+                        {workerName && (
+                          <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                            {workerName}
+                          </span>
+                        )}
                       </div>
-                    )}
+                      <p className="font-medium text-gray-900 text-sm">{issue.title}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{issue.location?.area} · {issue.category}</p>
+                      <Link to={`/issues/${issue._id}`} className="text-xs text-primary-600 hover:text-primary-700 mt-1 inline-block">
+                        View full timeline →
+                      </Link>
 
-                    {issue.status === 'Proposal Submitted' && (
-                      <>
-                        <button onClick={() => openModal('approve-proposal', issue._id)} className="btn-primary text-xs gap-1">
-                          <CheckCircle size={12} /> Approve
-                        </button>
-                        <button onClick={() => openModal('reject-proposal', issue._id)} className="btn-danger text-xs gap-1">
-                          <XCircle size={12} /> Reject
-                        </button>
-                      </>
-                    )}
+                      {/* Inline proposal card — shown when auditor needs to act on it */}
+                      {PROPOSAL_NEEDED.has(issue.status) && proposal && (
+                        <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-blue-800 uppercase tracking-wide">
+                              Worker Proposal{proposal.version > 1 ? ` (v${proposal.version})` : ''}
+                            </span>
+                            <span className="text-xs text-blue-500">
+                              {new Date(proposal.submitted_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-4 text-xs">
+                            <span className="flex items-center gap-1 font-semibold text-emerald-700">
+                              <IndianRupee size={11} /> ₹{proposal.estimated_budget?.toLocaleString('en-IN')}
+                            </span>
+                            <span className="text-gray-600">
+                              <span className="font-semibold">{proposal.estimated_timeline_days}</span> days
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-700 leading-relaxed border-t border-blue-100 pt-2">
+                            {proposal.description}
+                          </p>
+                        </div>
+                      )}
 
-                    {issue.status === 'Completed' && (
-                      <>
-                        <button onClick={() => openModal('resolve', issue._id)} className="btn-primary text-xs gap-1">
-                          <CheckCircle size={12} /> Resolve
-                        </button>
-                        <button onClick={() => openModal('rework', issue._id)} className="btn-danger text-xs gap-1">
-                          <XCircle size={12} /> Needs Rework
-                        </button>
-                      </>
-                    )}
+                      {/* Loading skeleton while proposal is being fetched */}
+                      {PROPOSAL_NEEDED.has(issue.status) && proposalCache[issue._id] === undefined && (
+                        <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 p-3 animate-pulse">
+                          <div className="h-3 bg-gray-200 rounded w-32 mb-2" />
+                          <div className="h-3 bg-gray-200 rounded w-full" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="shrink-0 flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+                      {issue.status === 'Submitted' && (
+                        <>
+                          <button onClick={() => openModal('validate', issue._id)} className="btn-primary text-xs gap-1">
+                            <CheckCircle size={12} /> Mark Valid
+                          </button>
+                          <button onClick={() => openModal('close', issue._id)} className="btn-danger text-xs gap-1">
+                            <XCircle size={12} /> Close
+                          </button>
+                        </>
+                      )}
+
+                      {issue.status === 'Under Review' && (
+                        <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg p-2">
+                          <select
+                            className="input-field py-1 px-2 text-xs bg-white"
+                            value={assignMap[issue._id] || ''}
+                            onChange={e => setAssignMap(m => ({ ...m, [issue._id]: e.target.value }))}
+                          >
+                            <option value="">— Select worker —</option>
+                            {workers.map(w => (
+                              <option key={w.id} value={w.id}>{w.name} ({w.readable_id})</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => assignWorker(issue._id)}
+                            disabled={busy || !assignMap[issue._id]}
+                            className="btn-primary text-xs gap-1 disabled:opacity-50 whitespace-nowrap"
+                          >
+                            <UserCheck size={12} /> Assign
+                          </button>
+                        </div>
+                      )}
+
+                      {issue.status === 'Proposal Submitted' && (
+                        <>
+                          <button onClick={() => openModal('approve-proposal', issue._id)} className="btn-primary text-xs gap-1">
+                            <CheckCircle size={12} /> Approve
+                          </button>
+                          <button onClick={() => openModal('reject-proposal', issue._id)} className="btn-danger text-xs gap-1">
+                            <XCircle size={12} /> Reject
+                          </button>
+                        </>
+                      )}
+
+                      {issue.status === 'Completed' && (
+                        <>
+                          <button onClick={() => openModal('resolve', issue._id)} className="btn-primary text-xs gap-1">
+                            <CheckCircle size={12} /> Resolve
+                          </button>
+                          <button onClick={() => openModal('rework', issue._id)} className="btn-danger text-xs gap-1">
+                            <XCircle size={12} /> Needs Rework
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

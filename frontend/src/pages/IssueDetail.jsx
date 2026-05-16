@@ -1,17 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import Navbar from '../components/Navbar';
 import { statusBadge, statusDot } from '../utils/status';
-import { MapPin, Clock, ArrowLeft, ImageIcon, Tag, IndianRupee } from 'lucide-react';
+import { AuthContext } from '../context/AuthContext';
+import { useToast } from '../components/Toast';
+import { MapPin, Clock, ArrowLeft, ImageIcon, IndianRupee, Camera, Trash2, CheckCircle } from 'lucide-react';
 
 export default function IssueDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useContext(AuthContext);
+  const toast = useToast();
+
   const [issue,    setIssue]    = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [loading,  setLoading]  = useState(true);
 
-  useEffect(() => {
+  // Evidence editing state
+  const [editingEvidence, setEditingEvidence] = useState(false);
+  const [evidencePhotos,  setEvidencePhotos]  = useState([]);
+  const [savingEvidence,  setSavingEvidence]  = useState(false);
+  const evidenceInputRef = useRef(null);
+
+  const fetchData = () => {
     Promise.all([
       api.get(`/issues/${id}`),
       api.get(`/issues/${id}/timeline`),
@@ -19,10 +31,45 @@ export default function IssueDetail() {
       .then(([issueRes, tlRes]) => {
         setIssue(issueRes.data);
         setTimeline(tlRes.data);
+        setEvidencePhotos(issueRes.data.photos ?? []);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [id]);
+  };
+
+  useEffect(() => { fetchData(); }, [id]);
+
+  const handleEvidencePhoto = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ type: 'error', message: 'Photo must be under 5 MB.' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => setEvidencePhotos(p => [...p, reader.result]);
+    reader.readAsDataURL(file);
+  };
+
+  const removeEvidencePhoto = (idx) => {
+    setEvidencePhotos(p => p.filter((_, i) => i !== idx));
+  };
+
+  const saveEvidence = async () => {
+    setSavingEvidence(true);
+    try {
+      await api.patch(`/issues/${id}/evidence`, { photos: evidencePhotos });
+      toast({ type: 'success', message: 'Evidence photos updated.' });
+      setEditingEvidence(false);
+      fetchData();
+    } catch (err) {
+      toast({ type: 'error', message: err.response?.data?.detail || 'Failed to save evidence.' });
+    } finally {
+      setSavingEvidence(false);
+    }
+  };
+
+  const isReporter = user && issue && String(user._id ?? user.id) === String(issue.reported_by);
 
   if (loading) {
     return (
@@ -46,7 +93,7 @@ export default function IssueDetail() {
         <Navbar />
         <div className="max-w-4xl mx-auto px-4 py-20 text-center">
           <p className="text-gray-500 font-medium">Issue not found.</p>
-          <Link to="/board" className="mt-4 inline-block btn-secondary text-sm">← Back to Board</Link>
+          <button onClick={() => navigate(-1)} className="mt-4 inline-block btn-secondary text-sm">← Go back</button>
         </div>
       </div>
     );
@@ -58,12 +105,12 @@ export default function IssueDetail() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 animate-fade-in">
 
         {/* Back link */}
-        <Link
-          to="/board"
+        <button
+          onClick={() => navigate(-1)}
           className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-800 mb-6 transition-colors"
         >
-          <ArrowLeft size={15} /> Back to Board
-        </Link>
+          <ArrowLeft size={15} /> Back
+        </button>
 
         {/* Issue card */}
         <div className="card p-6 md:p-8 mb-8">
@@ -121,23 +168,76 @@ export default function IssueDetail() {
           </p>
 
           {/* Photos */}
-          {issue.photos?.length > 0 && (
-            <div>
-              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 mb-3">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-gray-700">
                 <ImageIcon size={15} className="text-gray-400" /> Evidence Photos
               </h3>
-              <div className="flex gap-3 overflow-x-auto pb-1">
-                {issue.photos.map((photo, i) => (
-                  <img
-                    key={i}
-                    src={photo}
-                    alt={`Evidence ${i + 1}`}
-                    className="h-40 w-auto rounded-lg object-cover border border-gray-100 shrink-0 cursor-zoom-in"
-                  />
-                ))}
-              </div>
+              {isReporter && !editingEvidence && (
+                <button
+                  onClick={() => setEditingEvidence(true)}
+                  className="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+                >
+                  <Camera size={13} /> {issue.photos?.length ? 'Edit Photos' : 'Add Photos'}
+                </button>
+              )}
             </div>
-          )}
+
+            {!editingEvidence ? (
+              issue.photos?.length > 0 ? (
+                <div className="flex gap-3 overflow-x-auto pb-1">
+                  {issue.photos.map((photo, i) => (
+                    <img
+                      key={i}
+                      src={photo}
+                      alt={`Evidence ${i + 1}`}
+                      className="h-40 w-auto rounded-lg object-cover border border-gray-100 shrink-0 cursor-zoom-in"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No photos attached.</p>
+              )
+            ) : (
+              <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                {evidencePhotos.length > 0 && (
+                  <div className="flex gap-3 flex-wrap">
+                    {evidencePhotos.map((photo, i) => (
+                      <div key={i} className="relative">
+                        <img src={photo} alt="" className="h-24 w-auto rounded-lg object-cover border border-gray-100" />
+                        <button
+                          onClick={() => removeEvidencePhoto(i)}
+                          className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => evidenceInputRef.current?.click()}
+                    className="btn-secondary text-xs flex items-center gap-1.5"
+                  >
+                    <Camera size={13} /> Add Photo
+                  </button>
+                  <input type="file" accept="image/*" className="hidden" ref={evidenceInputRef} onChange={handleEvidencePhoto} />
+                  <button
+                    onClick={saveEvidence}
+                    disabled={savingEvidence}
+                    className="btn-primary text-xs flex items-center gap-1.5"
+                  >
+                    <CheckCircle size={13} /> {savingEvidence ? 'Saving…' : 'Save'}
+                  </button>
+                  <button onClick={() => { setEditingEvidence(false); setEvidencePhotos(issue.photos ?? []); }} className="btn-secondary text-xs">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Timeline */}

@@ -1,20 +1,21 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { Globe, ArrowRight, AlertCircle, Info } from 'lucide-react';
+import { Globe, ArrowRight, AlertCircle, Info, Eye, EyeOff } from 'lucide-react';
 
 const ROLE_HINTS = [
-  { email: 'auditor1@example.com or auditor2@example.com', role: 'Auditor', color: 'text-violet-700' },
-  { email: 'worker1@example.com or worker2@example.com',  role: 'Worker',  color: 'text-amber-700' },
-  { email: 'Any other email',                              role: 'Citizen', color: 'text-blue-700' },
+  { email: 'auditor1–5@example.com', role: 'Auditor', color: 'text-violet-700' },
+  { email: 'worker1–5@example.com',  role: 'Worker',  color: 'text-amber-700' },
+  { email: 'Any other email',        role: 'Citizen', color: 'text-blue-700' },
 ];
 
 export default function Register() {
-  const [name, setName]         = useState('');
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [name, setName]           = useState('');
+  const [email, setEmail]         = useState('');
+  const [password, setPassword]   = useState('');
+  const [showPassword, setShowPw] = useState(false);
+  const [error, setError]         = useState('');
+  const [loading, setLoading]     = useState(false);
   const { register }            = useContext(AuthContext);
   const navigate                = useNavigate();
 
@@ -134,16 +135,26 @@ export default function Register() {
 
             <div className="space-y-1">
               <label className="block text-sm font-medium text-gray-700">Password</label>
-              <input
-                type="password"
-                required
-                minLength={6}
-                autoComplete="new-password"
-                className="input-field"
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  className="input-field pr-10"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
 
             <button
